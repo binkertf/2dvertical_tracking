@@ -1,7 +1,7 @@
 import numpy as np
 import constants as c
 import fct as f
-
+import azimuthal_profile as az
 import functools as ft
 class Dust:
 
@@ -15,7 +15,7 @@ class Dust:
         self.Nf = 300#1500 #number of bins
 
         space_a_min = 0.025e-4
-        space_a_max = 10.0
+        space_a_max = 100.0
 
 
         self.a_grid = np.logspace(np.log10(self.a_min), np.log10(space_a_max), num=self.Nf, dtype=float) # logarithmic grid containing all the dust particle size bins
@@ -51,9 +51,14 @@ class Dust:
         '''
         update all the dust quantities
         '''
+        #background dust model
+        self.sig = simu.disk.dtg*simu.disk.gas.sig  # dust surface density [g/cm2]
+        self.a_max = 3.*simu.disk.gas.sig/(2.*np.pi*simu.disk.gas.alpha*self.rho_s)*(self.v_f/simu.disk.gas.cs)**2. #Eq. (14)
+        self.dsig = az.size_distribution_recipe(a_grid=self.a_grid,sig_g=simu.disk.gas.sig,T=simu.disk.gas.T,sig_d=self.sig,alpha=simu.disk.gas.alpha,rho_s=self.rho_s,v_f=self.v_f,ret='sig')
 
-
-        pass
+        #self.dsig = f.background_disrtibution2(self)
+        self.sigj = self.dsig*self.dloga #surface density for each mass bin
+        self.mj = (4./3.)*np.pi*self.rho_s*self.a_grid**3.
 
 
 
@@ -65,7 +70,7 @@ class Dust:
         '''
         alpha = simu.disk.gas.alpha
         Omega = simu.disk.Omega
-        self.ts = np.sqrt(np.pi/8.)*(self.rho_s*self.a_grid)/(simu.disk.gas.rho_gz*simu.disk.gas.cs) #stopping time at height z
+        self.ts = np.sqrt(np.pi/8.)*(self.rho_s*self.a_grid)/(simu.disk.gas.rho*simu.disk.gas.cs) #stopping time at height z
         self.ts_mp = np.sqrt(np.pi/8.)*(self.rho_s*self.a_grid)/(simu.disk.gas.rho_mp*simu.disk.gas.cs) #stopping time at the mid-plane
         self.h = simu.disk.gas.h*np.sqrt((alpha/(alpha+Omega*self.ts_mp))*((1.+Omega*self.ts_mp)/(1.+2.*Omega*self.ts_mp))) #sclae hieghzt of dust grains in bin j
         self.nj = 1./(np.sqrt(2.*np.pi)*self.h)*(self.sigj/self.mj)*np.exp((-simu.particle.z**2.)/(2.*self.h**2)) #number ensity of grains of size bin j
@@ -79,7 +84,7 @@ class Dust:
         sig_h2 = 2.0e-15 #collision cross section of H2 in [cm2]
         sigma_g = simu.disk.gas.sig #gas surface density in [g/cm2]
         rs    = simu.disk.dust.rho_s   #dust solid density [g/cm3]
-        T = simu.disk.T #gas temperature
+        T = simu.disk.gas.T #gas temperature
         mu = 2.3 #mean molecular weight
         m_p = 1.67e-24 #mass of a hydrogen atom [g]
         k_b = c.kB  # Boltzmann constant   [erg/K]
@@ -90,7 +95,7 @@ class Dust:
         #derived quantities
         re    = alpha*sig_h2*sigma_g/(2.*mu*m_p) #reynolds number of the gas
         cs     = simu.disk.gas.cs           #isothermal sound speed
-        x = simu.disk.R #radius
+        x = simu.particle.r #radius
 
         omega = simu.disk.Omega     #keplerian frquency
         tn    = 1./omega                            #overturn time of the larges eddies (1 orbital timescale)
@@ -105,7 +110,7 @@ class Dust:
         tau_1 = simu.particle.ts #stopping time of particel 1
         for i in range(N):
             a2 = simu.disk.dust.a_grid[i]
-            tau_2 = np.sqrt(np.pi/8.)*(simu.disk.dust.rho_s*a2)/(simu.disk.gas.rho_gz*simu.disk.gas.cs)#stopping time of particle 2
+            tau_2 = np.sqrt(np.pi/8.)*(simu.disk.dust.rho_s*a2)/(simu.disk.gas.rho*simu.disk.gas.cs)#stopping time of particle 2
 
             dv_bm = f.dv_brownian(T=T,rho_s=rs,a1=a1,a2=a2)
             dv_tur = f.dvt_ormel(tau_1,tau_2,tn,vn,ts,vs,re)

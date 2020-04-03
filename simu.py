@@ -21,29 +21,32 @@ class Simu:
     #the initialization method
     def initalize(self):
         '''
-        This method initializes the simulation by generating the steday-state isothermal disk model based on the
-        inital parameters and the model by Krijt (2016).
+        This method initializes the simulation by generating a steday-state isothermal disk model
         '''
 
         #disk/gas model
-        self.disk.T = f.temperature(self)   #mid-plane temperature [K] (Krijt (2016))
-        self.disk.gas.sig = 2000.0*(self.disk.R/c.AU)**(-3./2.) #local gas durface density
-        self.disk.Omega = np.sqrt(c.G*c.Mstar/self.disk.R**3.)
-        self.disk.gas.cs = (c.kB*self.disk.T/c.mg)**(1./2.)
-        self.disk.gas.h = self.disk.gas.cs/self.disk.Omega #gas scale height
-        self.disk.gas.D = self.disk.gas.alpha*self.disk.gas.cs*self.disk.gas.h #gas diffusivity, Eq.(3)
-        self.disk.gas.rho_mp = self.disk.gas.sig/(np.sqrt(2.*np.pi)*self.disk.gas.h) #midplane volume denisty
+        self.disk.gas.sig_1d = np.zeros_like(self.disk.r_grid)
+        self.disk.gas.sig_1d = f.surface_density(self,self.disk.r_grid) #gas surface density
 
-        #background dust model
-        self.disk.dust.sig = self.disk.dtg*self.disk.gas.sig  # dust surface density [g/cm2]
-        self.disk.dust.a_max = 3.*self.disk.gas.sig/(2.*np.pi*self.disk.gas.alpha*self.disk.dust.rho_s)*(self.disk.dust.v_f/self.disk.gas.cs)**2. #Eq. (14)
-        self.disk.dust.dsig = az.size_distribution_recipe(a_grid=self.disk.dust.a_grid,sig_g=self.disk.gas.sig,T=self.disk.T,sig_d=self.disk.dust.sig,alpha=self.disk.gas.alpha,rho_s=self.disk.dust.rho_s,v_f=self.disk.dust.v_f,ret='sig')
+        self.disk.gas.T_2d = np.zeros((self.disk.r_N,self.disk.z_N))
+        self.disk.gas.T_2d = f.temperature_2d(self,self.disk.r_grid)  #gas temperature
 
-        #self.disk.dust.dsig = f.background_disrtibution2(self)
+        self.disk.gas.cs_2d = np.zeros((self.disk.r_N,self.disk.z_N))
+        self.disk.gas.cs_2d = f.soundspeed(self,self.disk.gas.T_2d)  #gas sound speed
+
+        self.disk.gas.h_1d =  np.zeros_like(self.disk.r_grid)
+        self.disk.gas.h_1d = self.disk.gas.cs_2d[:,self.disk.z_mp]/self.disk.Omega_2d[:,self.disk.z_mp] #gas scale height
+
+        # fill the gas volume density
+        self.disk.gas.rho_2d = np.zeros((self.disk.r_N,self.disk.z_N))
+        for i, r in enumerate(self.disk.r_grid):
+            for j, z in enumerate(self.disk.z_grid):
+                hg = self.disk.gas.h_1d[i]
+                self.disk.gas.rho_2d[i,j] = self.disk.gas.sig_1d[i]/(np.sqrt(2.*np.pi)*hg)*np.exp(-(z**2.)/(2.*hg**2.))
 
 
-        self.disk.dust.sigj = self.disk.dust.dsig*self.disk.dust.dloga #surface density for each mass bin
-        self.disk.dust.mj = (4./3.)*np.pi*self.disk.dust.rho_s*self.disk.dust.a_grid**3.
+
+
 
         #init particle
 
@@ -52,6 +55,7 @@ class Simu:
         self.disk.dust.update_rates(self) #compute all the collision rates
 
     def update(self):
+        self.disk.update(self)
         self.disk.gas.update(self) # updates the local gas background
         self.particle.update(self)
         self.disk.dust.update(self) # updates the local dust background
@@ -60,20 +64,31 @@ class Simu:
 
     def iter(self):
         if self.mode == 0: #full physics
-            R1 = np.random.uniform(-1.,1.)
-            rand = R1*np.sqrt((2./self.parameters.zeta)*self.particle.D*self.parameters.dt)
-            self.particle.z = self.particle.z+self.particle.v_eff*self.parameters.dt+rand
 
-        if self.mode == 1: #only vertical setling
-            self.particle.z = self.particle.z+self.particle.v_settle*self.parameters.dt
+            #z direction
+            R1_z = np.random.uniform(-1.,1.)
+            #print(R1_z)
+            rand_z = R1_z*np.sqrt((2./self.parameters.zeta)*self.particle.D*self.parameters.dt)
+            self.particle.z = self.particle.z+self.particle.v_eff_z*self.parameters.dt+rand_z
 
-        if self.mode == 2: #naive random walk
-            R1 = np.random.uniform(-1.,1.)
-            rand = R1*np.sqrt((2./self.parameters.zeta)*self.particle.D*self.parameters.dt)
-            self.particle.z = self.particle.z+self.particle.v_settle*self.parameters.dt+rand
+            #x direction
+            R1_x = np.random.uniform(-1.,1.)
+            #print(R1_x)
+            rand_x = R1_x*np.sqrt((2./self.parameters.zeta)*self.particle.D*self.parameters.dt)
 
-        if self.mode == 3: #particle stays at the midplane
-            self.particle.z = 0.0
+            self.particle.x = self.particle.x+self.particle.v_eff_x*self.parameters.dt+rand_x
+
+            #y direction
+            R1_y = np.random.uniform(-1.,1.)
+            #print(R1_y)
+            rand_y = R1_y*np.sqrt((2./self.parameters.zeta)*self.particle.D*self.parameters.dt)
+
+            self.particle.y = self.particle.y+self.particle.v_eff_y*self.parameters.dt+rand_y
+
+            #r direction
+            self.particle.r = np.sqrt(self.particle.x**2+self.particle.y**2)
+
+
 
     def collision(self):
         '''
@@ -153,62 +168,6 @@ class Simu:
 
 
 
-                '''
-                if (mass_ratio > 10.0): #erosion, tracker in smaller aggregate
-                    af_min = self.disk.dust.a_min
-                    af_max = self.particle.a #largest particle size taking part in the collsion
-                    Cf = 2.*self.particle.m #constant in Eq. (13), total mass
-                    self.particle.a = f.frag_distribution(self,af_min,af_max,m_tot=Cf)
-                    self.particle.m = (4./3.)*np.pi*self.disk.dust.rho_s*self.particle.a**3.
-
-                elif (mass_ratio < 0.1):#erosion, tracker in larger aggregate
-                    af_min = self.disk.dust.a_min
-                    af_max = ak #largest particle size taking part in the fragmentation
-                    Cf = mk_group+self.particle.m #constant in Eq. (13), total mass
-                    m_rem = self.particle.m-2.*mk_group #mass of unfragmented agregate
-                    self.particle.a = f.erosion_distribution(self,af_min,af_max,m_rem,m_tot=Cf)
-                    self.particle.m = (4./3.)*np.pi*self.disk.dust.rho_s*self.particle.a**3.
-
-                else: #0.1 < mass_ratio < 10, catastrophic fragmentation
-                    af_min = self.disk.dust.a_min
-                    af_max = np.amin(([ak,self.particle.a])) #largest particle size taking part in the collsion
-
-                    Cf = mk_group+self.particle.m #constant in Eq. (13), total mass
-                    self.particle.a = f.frag_distribution(self,af_min,af_max,m_tot=Cf)
-                    self.particle.m = (4./3.)*np.pi*self.disk.dust.rho_s*self.particle.a**3.
-                '''
-
-
-
-
-
-
-
-
-
-
-
-
-    def plot_dust_size_distribution(self):
-        '''
-        this method plots the surface density (n(a)*m*a [g/cm3]) vs. particle size distribution (a [cm])
-        '''
-
-        plt.loglog(self.disk.dust.a_grid,self.disk.dust.dsig)
-        plt.ylim(1.0e-4,4)
-        plt.xlim(1.0e-5,1.0e1)
-        plt.show()
-
-
-    def check_dust_sigma(self):
-        '''
-        here I check wether the integral of the dust particle size dustribution is in
-        fact equal to the inital dust surafce density value.
-        '''
-        print('total dust surface denisty from initial parameters: ',self.disk.dust.sig ,' g/cm2')
-        dust_sigma_check=np.trapz(self.disk.dust.dsig,x=np.log(self.disk.dust.a_grid))
-        print('total dust surface denisty from integrating the size distribution: ',dust_sigma_check,' g/cm2')
-
     #@profile
     def write(self,k):
 
@@ -216,12 +175,14 @@ class Simu:
         if (k>=self.parameters.data.shape[0]):
 
             N = self.parameters.t_tot/self.parameters.dt
-            array = np.zeros((int(2.*N),3))
+            array = np.zeros((int(2.*N),5))
             self.parameters.data=np.append(self.parameters.data,array,axis=0)
 
         self.parameters.data[k,0] = self.parameters.t
         self.parameters.data[k,1] = self.particle.z
-        self.parameters.data[k,2] = self.particle.a
+        self.parameters.data[k,2] = self.particle.r
+        self.parameters.data[k,3] = self.particle.a
+        self.parameters.data[k,4] = self.particle.T
 
 
 
@@ -232,7 +193,7 @@ class Simu:
 
         #create data array
         N = self.parameters.t_tot/self.parameters.dt
-        self.parameters.data = np.zeros((int(2.*N),3))
+        self.parameters.data = np.zeros((int(2.*N),5))
         self.write(k=0)
 
         # main loop
@@ -249,6 +210,34 @@ class Simu:
 
         #delete the trailing zero entries
         self.parameters.data=self.parameters.data[:j,:]
+
+######################
+    def velocity_field(self):
+        r_grid = self.disk.r_grid
+        z_grid = self.disk.z_grid
+
+        r_plot,z_plot = np.meshgrid(z_grid, r_grid)
+
+        v_r_plot = np.zeros_like(r_plot)
+        v_z_plot = np.zeros_like(r_plot)
+
+
+        for i,r in enumerate(r_grid):
+            for j,z in enumerate(z_grid):
+                self.particle.r = r
+                self.particle.z = z
+                #print('i,r: ',i,r)
+                #print('j,z: ',j,z)
+                self.update()
+                v_r_plot[i,j] = self.particle.v_r
+                v_z_plot[i,j] = self.particle.v_settle
+
+
+
+        return r_plot,z_plot,v_r_plot,v_z_plot
+
+
+
 
 
 
@@ -273,19 +262,14 @@ class Par():
 
 
     def update_dt(self,simu):
+        if (self.mode == 1):
+            self.dt = self.f_diff/((simu.disk.gas.alpha+simu.disk.Omega*simu.particle.ts)*simu.disk.Omega)
+            self.t = self.t+self.dt
+
         if (self.mode == 0):
             self.dt = np.amin(([self.f_diff/((simu.disk.gas.alpha+simu.disk.Omega*simu.particle.ts)*simu.disk.Omega),self.f_coll/simu.disk.dust.Ctot_hat]))
             self.t = self.t+self.dt
-            #v = self.f_diff/((simu.disk.gas.alpha+simu.disk.Omega*simu.particle.ts)*simu.disk.Omega)
-            #w = self.f_coll/simu.disk.dust.Ctot_hat
-            #if (v>w):
-                #print('changed timestep')
-            #print('1: ',)
-            #print('2: ',self.f_coll/simu.disk.dust.Ctot_hat)
-        if (self.mode == 1):
+
+        if (self.mode == 2):
             self.dt = 0.5/simu.disk.dust.Ctot_hat
-            #self.dt = self.f_diff/((simu.disk.gas.alpha+simu.disk.Omega*simu.particle.ts)*simu.disk.Omega)
-            #print(self.f_diff/((simu.disk.gas.alpha+simu.disk.Omega*simu.particle.ts)*simu.disk.Omega)/c.yr)
-            #print(0.1/simu.disk.dust.Ctot_hat/c.yr)
-            #print('#######')
             self.t = self.t+self.dt
