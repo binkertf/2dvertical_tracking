@@ -15,14 +15,18 @@ class Simu:
         self.disk = Disk()              #the background
         self.particle = Particle()      #the tracer
         self.parameters = Par()         #simulatiom paramters
-        self.mode = 0                   #simulatiomn modes
+        self.mode = 0                   #simulation modes
 
 
     #the initialization method
-    def initalize(self):
+    def initialize(self):
         '''
         This method initializes the simulation by generating a steday-state isothermal disk model
         '''
+        self.disk.initialize() #initialize disk
+        self.disk.gas.initialize() #initialize disk
+        self.particle.initialize() #initialize disk
+        self.disk.dust.initialize() #initialize disk
 
         #disk/gas model
         self.disk.gas.sig_1d = np.zeros_like(self.disk.r_grid)
@@ -188,7 +192,7 @@ class Simu:
 
     def run(self, t_tot):
         self.parameters.t_tot = t_tot*c.yr
-        self.initalize()
+        self.initialize()
         self.update()
 
         #create data array
@@ -199,11 +203,17 @@ class Simu:
         # main loop
         j = 1
         while (self.parameters.t/c.yr)<t_tot:
-            self.rates() #determin the collision rates
-            self.parameters.update_dt(self) #updates the simulation parameters (e.g. dt)
-            self.iter() #displace the particle vertically according to Eq. 15
-            self.collision() #determine if a collision has occured
-            self.update() #update all the quantities at the new particle position
+            if self.parameters.collisions == True:
+                self.rates() #determin the collision rates
+                self.parameters.update_dt(self) #updates the simulation parameters (e.g. dt)
+                self.iter() #displace the particle vertically according to Eq. 15
+                self.collision() #determine if a collision has occured
+                self.update() #update all the quantities at the new particle position
+
+            if self.parameters.collisions == False:
+                self.parameters.update_dt(self) #updates the simulation parameters (e.g. dt)
+                self.iter() #displace the particle vertically according to Eq. 15
+                self.update() #update all the quantities at the new particle position
 
             self.write(j)
             j+=1
@@ -253,6 +263,8 @@ class Par():
         self.t_tot = None
         self.mode = 0
 
+        self.collisions = True
+
 
     def est_dt(self,simu):
         '''
@@ -262,14 +274,14 @@ class Par():
 
 
     def update_dt(self,simu):
-        if (self.mode == 1):
-            self.dt = self.f_diff/((simu.disk.gas.alpha+simu.disk.Omega*simu.particle.ts)*simu.disk.Omega)
+
+        if (self.collisions == True):
+            t_drift = simu.particle.r/np.abs(simu.particle.v_r)
+
+            self.dt = np.amin(([self.f_diff/((simu.disk.gas.alpha+simu.disk.Omega*simu.particle.ts)*simu.disk.Omega),self.f_coll/simu.disk.dust.Ctot_hat,self.f_diff*t_drift]))
             self.t = self.t+self.dt
 
-        if (self.mode == 0):
-            self.dt = np.amin(([self.f_diff/((simu.disk.gas.alpha+simu.disk.Omega*simu.particle.ts)*simu.disk.Omega),self.f_coll/simu.disk.dust.Ctot_hat]))
-            self.t = self.t+self.dt
-
-        if (self.mode == 2):
-            self.dt = 0.5/simu.disk.dust.Ctot_hat
+        if (self.collisions == False):
+            t_drift = simu.particle.r/np.abs(simu.particle.v_r)
+            self.dt = np.amin(([self.f_diff/((simu.disk.gas.alpha+simu.disk.Omega*simu.particle.ts)*simu.disk.Omega),self.f_diff*t_drift]))
             self.t = self.t+self.dt

@@ -46,6 +46,8 @@ class Dust:
         self.a_grid_group = np.zeros_like(self.a_grid) #grouped particle size bins
         self.mj_group = np.zeros_like(self.a_grid) #mass of the grouped dust particles
 
+    def initialize(self):
+        pass
 
     def update(self,simu):
         '''
