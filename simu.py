@@ -1,5 +1,6 @@
 from disk import Disk
 from particle import Particle
+from args import Args
 import constants as c
 
 import fct as f
@@ -15,7 +16,6 @@ class Simu:
         self.disk = Disk()              #the background
         self.particle = Particle()      #the tracer
         self.parameters = Par()         #simulatiom paramters
-        self.mode = 0                   #simulation modes
 
 
     #the initialization method
@@ -23,10 +23,13 @@ class Simu:
         '''
         This method initializes the simulation by generating a steday-state isothermal disk model
         '''
-        self.disk.initialize() #initialize disk
-        self.disk.gas.initialize() #initialize disk
-        self.particle.initialize() #initialize disk
-        self.disk.dust.initialize() #initialize disk
+        self.parameters.inp_args.read_args() #copy the 'parameters.inp' file to self.parameters.inp_args
+        self.parameters.initialize(self)
+        self.disk.initialize(self) #initialize disk (translate from args to disk object)
+        self.disk.gas.initialize(self) #initialize disk
+        self.particle.initialize(self) #initialize disk
+        self.disk.dust.initialize(self) #initialize disk
+
 
         #disk/gas model
         self.disk.gas.sig_1d = np.zeros_like(self.disk.r_grid)
@@ -51,7 +54,7 @@ class Simu:
 
 
 
-
+        print('initialization done.')
         #init particle
 
 
@@ -67,7 +70,7 @@ class Simu:
 
 
     def iter(self):
-        if self.mode == 0: #full physics
+        if True: #full physics
 
             #z direction
             R1_z = np.random.uniform(-1.,1.)
@@ -254,6 +257,7 @@ class Simu:
 class Par():
 
     def __init__(self):
+        self.inp_args = Args() #input arguments
         self.zeta = 1./3.
         self.f_diff = 1.0e-2
         self.f_coll = 1.0
@@ -263,8 +267,17 @@ class Par():
         self.t_tot = None
         self.mode = 0
 
-        self.collisions = True
+        self.collisions = None
 
+    def initialize(self,simu):
+        inargs = self.inp_args
+        self.f_diff = inargs.f_diff
+        self.f_coll = inargs.f_coll
+
+        self.collisions = inargs.collisions
+        simu.particle.randmotion = inargs.randmotion
+        simu.particle.rad_vel = inargs.rad_vel
+        simu.disk.gas.viscev = inargs.viscev
 
     def est_dt(self,simu):
         '''

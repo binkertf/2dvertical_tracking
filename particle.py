@@ -32,6 +32,8 @@ class Particle():
         self.v_r = 0.0 #radial drift velocity
 
         self.diffusion = True
+        self.randmotion = True
+        self.rad_vel = None
 
 
 
@@ -39,8 +41,17 @@ class Particle():
         self.h = None   #dust sclae height for particle with size a
         self.m = None   #mass of the particle
 
-    def initialize(self):
-        self.r = np.sqrt(self.x**2+self.y**2)
+    def initialize(self,simu):
+        inargs = simu.parameters.inp_args
+
+        self.a = inargs.a0
+        self.z = inargs.z0*c.AU
+        self.r = inargs.r0*c.AU
+
+        self.x = self.r #particle initially in the X-Z plane
+        self.y = 0.0
+
+
 
 
 
@@ -50,15 +61,23 @@ class Particle():
         self.T = simu.disk.gas.T
         self.ts = np.sqrt(np.pi/8.)*(simu.disk.dust.rho_s*self.a)/(simu.disk.gas.rho*simu.disk.gas.cs) #stopping time
         self.ts_mp = np.sqrt(np.pi/8.)*(simu.disk.dust.rho_s*self.a)/(simu.disk.gas.rho_mp*simu.disk.gas.cs)
-        if (self.diffusion == True):
-            self.D = simu.disk.gas.D/(1.+(simu.disk.Omega*self.ts)**2.) #dust diffusivity
+        self.St = self.ts*simu.disk.Omega #Stokes number
+        if (self.randmotion == True):
+            self.D = simu.disk.gas.D/(1.+(self.St)**2.) #dust diffusivity
         else:
             self.D = 0.0
-        self.St = self.ts * simu.disk.Omega
+
+
         self.St_mid = self.ts_mp * simu.disk.Omega_mid
 
-        #self.v_r = ((1./self.St)*simu.disk.gas.v_r-simu.disk.gas.eta*self.r*simu.disk.Omega_mid)/(self.St+1./self.St) #radial drift velocity T&L 2002 Eq. (23)
-        self.v_r = -self.St*simu.disk.gas.eta*self.r*simu.disk.Omega_mid #in the limiting case of St << 1
+        if (simu.particle.rad_vel == 'Nakagawa86'):
+            self.v_r = -2.*self.St*simu.disk.gas.eta*self.r*simu.disk.Omega_mid
+
+        elif (simu.particle.rad_vel == 'T&L02'):
+            self.v_r = ((1./self.St)*simu.disk.gas.v_r-simu.disk.gas.eta*self.r*simu.disk.Omega_mid)/(self.St+1./self.St) #radial drift velocity T&L 2002 Eq. (23)
+
+        elif (simu.particle.rad_vel == 'Fabian20'):
+            self.v_r = -self.St*simu.disk.gas.eta*self.r*simu.disk.Omega_mid #in the limiting case of St << 1
 
         #velocities
         self.v_settle  = -self.ts*(simu.disk.Omega)**2*self.z #vertical settling velocity

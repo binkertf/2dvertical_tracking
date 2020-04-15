@@ -17,7 +17,7 @@ class Gas:
         self.h_1d = None               #gas scale height
 
         #scalar quantities
-        self.sig0 = 1700.0 #g/cm2   #surface density at 1 AU
+        self.sig0 = 2000.0 #g/cm2   #surface density at 1 AU
         self.ps = -3./2.             #power law index
 
         self.T0 = 280.                   #temperature at 1 AU
@@ -43,9 +43,17 @@ class Gas:
         self.P = 0.0                #gas pressure
         self.dP_dr = 0.0            #pressure gardient in radial direction
 
-    def initialize(self):
-        pass
+        self.viscev = True
 
+    def initialize(self,simu):
+        inargs = simu.parameters.inp_args
+        self.sig0 = inargs.sigma0
+        self.ps = inargs.ps
+        self.T0 = inargs.T0
+        self.q = inargs.q
+        self.alpha = inargs.alpha
+
+        self.p =  self.ps-0.5*(self.q+3)                  #power law index
 
     def update(self,simu): #update the local quantities at (r,z)
         r = simu.particle.r
@@ -61,18 +69,28 @@ class Gas:
         self.rho_mp = self.sig/(np.sqrt(2.*np.pi)*self.h) #midplane volume denisty
 
         self.Omega_g = simu.disk.Omega_mid*(1.+0.5*(self.h/r)**2*(self.p+self.q+0.5*self.q*(z/self.h)**2.)) #Takeuchi&Lin Eq. (7)
-        #self.v_r = -2.*np.pi*self.alpha*(self.h0/c.AU)**2.*(3*self.p+2*self.q+6.+0.5*(5.*self.q+9.)*(z/self.h)**2.)*(r/c.AU)**(self.q+0.5)  #T&L2002 Eq. 11
-        #self.v_r = self.v_r*c.AU/c.yr
-        self.v_r = 0.0 #no radial gas velocity
+        self.drho_dr = self.rho*self.p/r
 
-        self.eta = -(self.h/r)**2*(self.p+self.q+0.5*(self.q+3.)*(z/self.h)**2.)#T&L2002 Eq. (17)
+        if (self.viscev == False):
+            self.v_r = 0.0 #no radial gas velocity
+        else:
+            self.v_r = 0.0
+            print('VISCOUS EVOLUTION NOT IMPLEMENTED')
+            #self.v_r = -2.*np.pi*self.alpha*(self.h0/c.AU)**2.*(3*self.p+2*self.q+6.+0.5*(5.*self.q+9.)*(z/self.h)**2.)*(r/c.AU)**(self.q+0.5)  #T&L2002 Eq. 11
+            #self.v_r = self.v_r*c.AU/c.yr
+
 
         self.P = self.rho*self.cs**2
-        self.dP_dr = self.P/r*(self.p+self.q+(self.q+3)*(z**4./(4.*self.h**4.)))
+        self.dP_dr = self.P/r*(self.p+self.q+(self.q+3)*(z**2./(2.*self.h**2.)))
 
+        if (simu.particle.rad_vel == 'Nakagawa86'):
+            #Nakagawa86 evaluates the quantities at the midplane
+            self.P = self.rho_mp*self.cs**2 #mid-plane pressure
+            self.dP_dr = self.P/r*(self.p+self.q)
+            self.eta = -0.5*self.dP_dr/self.rho_mp *(1./(r*simu.disk.Omega_mid**2.)) #Nakagawa 86 Eq. (1.9)
 
-        self.eta = -self.dP_dr/self.rho*(1./(r*simu.disk.Omega**2.))# Fabian 2020
+        elif (simu.particle.rad_vel == 'T&L02'):
+            self.eta = -(self.h/r)**2*(self.p+self.q+0.5*(self.q+3.)*(z/self.h)**2.)#T&L2002 Eq. (17)
 
-        #self.eta = 1.81e-3*np.sqrt(r/c.AU) #Nakagawa 86 Eq. (1.10)
-        #print(self.eta)
-        self.drho_dr = self.rho*self.p/r
+        elif (simu.particle.rad_vel == 'Fabian20'):
+            self.eta = -self.dP_dr/self.rho*(1./(r*simu.disk.Omega**2.))# Fabian 2020

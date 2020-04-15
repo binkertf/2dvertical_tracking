@@ -40,7 +40,18 @@ class Disk:
 
         self.dtg = 0.01      #dust to gas ratio
 
-    def initialize(self):
+    def initialize(self,simu):
+        #update according to parameter profile
+        inargs = simu.parameters.inp_args
+
+        self.r_min = inargs.r_min*c.AU
+        self.r_max = inargs.r_max *c.AU
+        self.r_N = inargs.r_N
+        self.z_max = inargs.z_max*c.AU
+        self.z_N = inargs.z_N
+        self.dtg = inargs.dtg
+
+
         self.z_min = -self.z_max
         self.z_mp = int(self.z_N/2)
         self.r_grid = np.linspace(self.r_min,self.r_max,self.r_N)
