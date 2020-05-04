@@ -25,7 +25,7 @@ class Gas:
 
         self.p =  self.ps-0.5*(self.q+3)                  #power law index
 
-        self.sig_g = 0.0
+        #self.sig_g = 0.0
         self.rho = 0.0              #gas volume density [g/cm3]
         self.T = 0.0               #gas temperature [K]
         self.cs = 0.0               #gas speed of sound

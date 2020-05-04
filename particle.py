@@ -23,13 +23,18 @@ class Particle():
         self.v_gas_y  = 0.0 # gas velocity
         self.v_gas_x  = 0.0
         self.D = 0.0         # diffusivity
+        self.dD_dr = 0.0    #duffusivity gradient
         self.v_eff_z = 0.0   # effective velocity
         self.v_eff_x = 0.0
         self.v_eff_y = 0.0
+        self.v_FP_z = 0.0   #accounts for possible variations in the diffusion coefficie
+        self.v_FP_x = 0.0
+        self.v_FP_y = 0.0
         self.v_z = 0.0
         self.v_y = 0.0
         self.v_x = 0.0
         self.v_r = 0.0 #radial drift velocity
+
 
         self.diffusion = True
         self.randmotion = True
@@ -58,18 +63,26 @@ class Particle():
 
 
     def update(self,simu):
+        q = simu.disk.gas.q
+        p = simu.disk.gas.p
         self.T = simu.disk.gas.T
         self.ts = np.sqrt(np.pi/8.)*(simu.disk.dust.rho_s*self.a)/(simu.disk.gas.rho*simu.disk.gas.cs) #stopping time
         self.ts_mp = np.sqrt(np.pi/8.)*(simu.disk.dust.rho_s*self.a)/(simu.disk.gas.rho_mp*simu.disk.gas.cs)
-        self.St = self.ts*simu.disk.Omega #Stokes number
-        if (self.randmotion == True):
-            self.D = simu.disk.gas.D/(1.+(self.St)**2.) #dust diffusivity
-        else:
-            self.D = 0.0
-
-
+        self.St = self.ts*simu.disk.Omega_mid #Stokes number
         self.St_mid = self.ts_mp * simu.disk.Omega_mid
 
+
+        if (self.randmotion == True):
+            self.D = simu.disk.gas.D/(1.+(self.St)**2.)
+            self.dD_dr = self.D/self.r*(q+3./2.+2.*self.St**2./(1.+self.St**2)*(3./2.+p+q/2.+0.5*(q+3.)*(self.z/simu.disk.gas.h)**2))
+        else:
+            self.D = 0.0
+            self.dD_dr = 0.0
+
+
+
+
+        #radial drift velocities according to different receipes
         if (simu.particle.rad_vel == 'Nakagawa86'):
             self.v_r = -2.*self.St*simu.disk.gas.eta*self.r*simu.disk.Omega_mid
 
@@ -79,17 +92,23 @@ class Particle():
         elif (simu.particle.rad_vel == 'Fabian20'):
             self.v_r = -self.St*simu.disk.gas.eta*self.r*simu.disk.Omega_mid #in the limiting case of St << 1
 
-        #velocities
+
+        #other physical velocities and velocties with mathematical origin
         self.v_settle  = -self.ts*(simu.disk.Omega)**2*self.z #vertical settling velocity
         self.v_gas_z = -self.D*self.z/simu.disk.gas.h**2.
-        self.v_eff_z = self.v_gas_z + self.v_settle
+        self.v_FP_z = 0.0
+        self.v_eff_z = self.v_gas_z + self.v_settle + self.v_FP_z
 
         self.v_x = (self.v_r)*(self.x/self.r)
         self.v_y = (self.v_r)*(self.y/self.r)
 
+        self.v_FP_x = self.dD_dr*(self.x/self.r)
+        self.v_FP_y = self.dD_dr*(self.y/self.r)
+
         self.v_gas_x = self.D/simu.disk.gas.rho*simu.disk.gas.drho_dr*(self.x/self.r)
         self.v_gas_y = self.D/simu.disk.gas.rho*simu.disk.gas.drho_dr*(self.y/self.r)
 
-        self.v_eff_x = self.v_x+self.v_gas_x
-        self.v_eff_y = self.v_y+self.v_gas_y
+        self.v_eff_x = self.v_x+self.v_gas_x+self.v_FP_x
+        self.v_eff_y = self.v_y+self.v_gas_y+self.v_FP_y
+
         self.m = (4./3.)*np.pi*simu.disk.dust.rho_s*self.a**3. #particle mass

@@ -14,8 +14,9 @@ class Dust:
         self.dsig = None # dust surface density distribution n(a)*m*a [g/cm3]
         self.Nf = 300#1500 #number of bins
 
+        self.model = None #model of the dust background distribution
         space_a_min = 0.025e-4
-        space_a_max = 100.0
+        space_a_max = 1000.0
 
 
         self.a_grid = np.logspace(np.log10(self.a_min), np.log10(space_a_max), num=self.Nf, dtype=float) # logarithmic grid containing all the dust particle size bins
@@ -50,10 +51,40 @@ class Dust:
         inargs = simu.parameters.inp_args
 
         self.v_f = inargs.v_f
+        self.v_b = inargs.v_b
         self.a_min = inargs.a_min
         self.a_max = inargs.a_max
         self.rho_s = inargs.rho_s
         self.Nf = inargs.Nf
+        self.model = inargs.dbgmodel
+
+        if (self.model == 'SW'):
+            print('sweep up model')
+
+            self.Nf = 1
+
+            self.a_grid = np.logspace(np.log10(self.a_min), np.log10(self.a_min), num=self.Nf, dtype=float) # logarithmic grid containing all the dust particle size bins
+            self.dloga = 0.0#np.diff(np.log(self.a_grid))[0] #logarithmig binspacing
+
+            self.mj = np.zeros_like(self.a_grid) #mass of the dust particles
+            self.nj = np.zeros_like(self.a_grid) #number density of grains of size j at altizute z
+            self.ts = np.zeros_like(self.a_grid) #stopping time for each particle size at height z
+            self.ts_mp = np.zeros_like(self.a_grid) #stopping time at the midplane for each particle size
+            self.h = np.zeros_like(self.a_grid) #dust scale height for each particle size (based on midplane stopping time)
+            self.Cj = np.zeros_like(self.a_grid)          #collision rates
+            self.Cj_hat = np.zeros_like(self.a_grid) #adjusted collision rates
+            self.Ctot = 0.0   #total collision rates
+            self.Ctot_hat  = 0.0               #total collision rates
+            self.sigj = np.zeros_like(self.a_grid) #surface density of particle size j in [g/cm3]
+
+            self.sig_colj = np.zeros_like(self.a_grid)     #collision cross section
+            self.v_rel = np.zeros_like(self.a_grid)       #relative velocity
+            self.dv_bm = np.zeros_like(self.a_grid)
+            self.dv_tur = np.zeros_like(self.a_grid)
+            self.checkfeps = np.zeros_like(self.a_grid)
+
+            self.a_grid_group = np.zeros_like(self.a_grid) #grouped particle size bins
+            self.mj_group = np.zeros_like(self.a_grid) #mass of the grouped dust particles
 
     def update(self,simu):
         '''
@@ -62,10 +93,14 @@ class Dust:
         #background dust model
         self.sig = simu.disk.dtg*simu.disk.gas.sig  # dust surface density [g/cm2]
         self.a_max = 3.*simu.disk.gas.sig/(2.*np.pi*simu.disk.gas.alpha*self.rho_s)*(self.v_f/simu.disk.gas.cs)**2. #Eq. (14)
-        self.dsig = az.size_distribution_recipe(a_grid=self.a_grid,sig_g=simu.disk.gas.sig,T=simu.disk.gas.T,sig_d=self.sig,alpha=simu.disk.gas.alpha,rho_s=self.rho_s,v_f=self.v_f,ret='sig')
+        if (self.model == 'birnst2012'):
+            self.dsig = az.size_distribution_recipe(a_grid=self.a_grid,sig_g=simu.disk.gas.sig,T=simu.disk.gas.T,sig_d=self.sig,alpha=simu.disk.gas.alpha,rho_s=self.rho_s,v_f=self.v_f,ret='sig')
+            self.sigj = self.dsig*self.dloga #surface density for each mass bin
+        elif(self.model == 'SW'):
+            self.dsig = 0.0
+            self.sigj = simu.disk.dtg*simu.disk.gas.sig
 
-        #self.dsig = f.background_disrtibution2(self)
-        self.sigj = self.dsig*self.dloga #surface density for each mass bin
+
         self.mj = (4./3.)*np.pi*self.rho_s*self.a_grid**3.
 
 
@@ -85,6 +120,7 @@ class Dust:
         self.sig_colj = np.pi*(np.ones_like(self.sig_colj)*simu.particle.a+simu.disk.dust.a_grid)**2. #collsion cross section between tracked particle and each background particle bin
 
 
+        #perform some preparation
         a1 = simu.particle.a #size of the tracked particle
 
         N = np.shape(self.v_rel)[0] #number of particle bins
@@ -116,17 +152,24 @@ class Dust:
 
 
         tau_1 = simu.particle.ts #stopping time of particel 1
-        for i in range(N):
+        v_z_1 = simu.particle.v_settle #vertical settling velocity of particle 1
+        v_r_1 = 0.0 #radial drift velocity of particle 1
+
+        for i in range(N): #sweep through all the particle bins
             a2 = simu.disk.dust.a_grid[i]
             tau_2 = np.sqrt(np.pi/8.)*(simu.disk.dust.rho_s*a2)/(simu.disk.gas.rho*simu.disk.gas.cs)#stopping time of particle 2
+            v_z_2 = -tau_2*(simu.disk.Omega)**2*simu.particle.z #vertical settling velocity of particle 2
+            v_r_2 = -tau_2*simu.disk.Omega_mid*simu.disk.gas.eta*simu.particle.r*simu.disk.Omega_mid  #radial drift velocity of particle 2
 
-            dv_bm = f.dv_brownian(T=T,rho_s=rs,a1=a1,a2=a2)
-            dv_tur = f.dvt_ormel(tau_1,tau_2,tn,vn,ts,vs,re)
+            #sources of relative velocitiy
+            dv_bm = f.dv_brownian(T=T,rho_s=rs,a1=a1,a2=a2) #brownian motion
+            dv_tur = f.dvt_ormel(tau_1,tau_2,tn,vn,ts,vs,re) #stochastic turbulence
+            dv_z = np.abs(v_z_1-v_z_2) #differential settling
+            dv_r = np.abs(v_r_1-v_r_2) #differential drift
 
-            self.v_rel[i] = np.sqrt(dv_tur**2.+dv_bm**2.)
+            self.v_rel[i] = np.sqrt(dv_tur**2.+dv_bm**2.+dv_z**2+dv_r**2.) #Okuzumi (2012) Eq.(16)
 
         ########################################################################
-
         self.Cj = np.ones_like(self.nj)*self.nj*self.v_rel*self.sig_colj #collsion rates for all the mass bins
         self.Cj_hat = np.ones_like(self.nj)*self.nj*self.v_rel*self.sig_colj
 

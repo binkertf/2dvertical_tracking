@@ -103,6 +103,7 @@ class Simu:
         '''
         np.random.seed() #this is neccessary here for calling the method in parallel processes
 
+        vbounce = self.disk.dust.v_b #bouncing velocity
         vfrag = self.disk.dust.v_f #fragmentation velocity
         dvfrag = vfrag/5.
         vrel = self.disk.dust.v_rel #relative velocities
@@ -118,9 +119,14 @@ class Simu:
             R3 = np.random.uniform(0.,self.disk.dust.Ctot_hat)
             Csum = 0.0
             k = 0
+            kmax = self.disk.dust.Cj_hat.shape[0]
+
             while (Csum<R3):
                 Csum += self.disk.dust.Cj_hat[k]
+                if ((k+1) == kmax):
+                    break
                 k +=1
+
 
             #ungrouped collsion partner
             ak = self.disk.dust.a_grid[k]
@@ -132,48 +138,54 @@ class Simu:
 
             n_group = mk_group/mk #number of grouped partikcles in group k
 
-            #determine the outcome of the collision partner
-            Pfrag = 0.0
-            if (vrel[k]<(vfrag-dvfrag)):
-                Pfrag=0.0 #no fragmentation
-            elif (vrel[k]>=vfrag):
-                Pfrag=1.0 #always fragmentation
-            else:
-                Pfrag=1.-(vfrag-vrel[k])/(dvfrag) #sometimes fragmentation
+            if(self.parameters.barrier == 'fragmentation'):
+                #determine the outcome of the collision partner
+                Pfrag = 0.0
+                if (vrel[k]<(vfrag-dvfrag)):
+                    Pfrag=0.0 #no fragmentation
+                elif (vrel[k]>=vfrag):
+                    Pfrag=1.0 #always fragmentation
+                else:
+                    Pfrag=1.-(vfrag-vrel[k])/(dvfrag) #sometimes fragmentation
 
-            #fragmentation?
-            Frag = False #sticking collision
-            R4  = np.random.uniform(0.,1.)
-            if (R4<Pfrag):
-                Frag = True #fragmentation collision
+                #fragmentation?
+                Frag = False #sticking collision
+                R4  = np.random.uniform(0.,1.)
+                if (R4<Pfrag):
+                    Frag = True #fragmentation collision
 
-            #where does the monomer end up?
+                #where does the monomer end up?
 
-            if Frag == False: #sticking collision
-                self.particle.m = self.particle.m+mk_group #sticking collsion with group
-                self.particle.a = (3./(4.*np.pi)*(self.particle.m/self.disk.dust.rho_s))**(1./3.)
-
-
-            #fragmentation
-            if Frag == True:
-                mass_ratio = mk/self.particle.m #mass ratio between colldiing particles
-
-                if (mass_ratio >= 0.1): #fragmentation or erosion and tracker in smaller aggregate
-                    af_min = self.disk.dust.a_min
-                    af_max = self.particle.a #largest particle size taking part in the collsion
-                    Cf = self.particle.m #constant in Eq. (13), total mass
-                    self.particle.a = f.frag_distribution(self,af_min,af_max,m_tot=Cf)
-                    self.particle.m = (4./3.)*np.pi*self.disk.dust.rho_s*self.particle.a**3.
-
-                else: #erosion, tracker in larger aggregate
-                    af_min = self.disk.dust.a_min
-                    af_max = ak #largest particle size taking part in the fragmentation
-                    Cf = self.particle.m #constant in Eq. (13), total mass
-                    m_rem = self.particle.m-mk_group #mass of unfragmented agregate
-                    self.particle.a = f.erosion_distribution(self,af_min,af_max,m_rem,m_tot=Cf)
-                    self.particle.m = (4./3.)*np.pi*self.disk.dust.rho_s*self.particle.a**3.
+                if Frag == False: #sticking collision
+                    self.particle.m = self.particle.m+mk_group #sticking collsion with group
+                    self.particle.a = (3./(4.*np.pi)*(self.particle.m/self.disk.dust.rho_s))**(1./3.)
 
 
+                #fragmentation
+                if Frag == True:
+                    mass_ratio = mk/self.particle.m #mass ratio between colldiing particles
+
+                    if (mass_ratio >= 0.1): #fragmentation or erosion and tracker in smaller aggregate
+                        af_min = self.disk.dust.a_min
+                        af_max = self.particle.a #largest particle size taking part in the collsion
+                        Cf = self.particle.m #constant in Eq. (13), total mass
+                        self.particle.a = f.frag_distribution(self,af_min,af_max,m_tot=Cf)
+                        self.particle.m = (4./3.)*np.pi*self.disk.dust.rho_s*self.particle.a**3.
+
+                    else: #erosion, tracker in larger aggregate
+                        af_min = self.disk.dust.a_min
+                        af_max = ak #largest particle size taking part in the fragmentation
+                        Cf = self.particle.m #constant in Eq. (13), total mass
+                        m_rem = self.particle.m-mk_group #mass of unfragmented agregate
+                        self.particle.a = f.erosion_distribution(self,af_min,af_max,m_rem,m_tot=Cf)
+                        self.particle.m = (4./3.)*np.pi*self.disk.dust.rho_s*self.particle.a**3.
+
+            elif (self.parameters.barrier == 'bouncing'):
+                if (vrel[k]<vbounce): #sticking collision
+                    self.particle.m = self.particle.m+mk_group #sticking collsion with group
+                    self.particle.a = (3./(4.*np.pi)*(self.particle.m/self.disk.dust.rho_s))**(1./3.)
+                else: #bouncing collsion -> nothing happens
+                    pass
 
     #@profile
     def write(self,k):
@@ -193,19 +205,19 @@ class Simu:
 
 
 
-    def run(self, t_tot):
-        self.parameters.t_tot = t_tot*c.yr
+    def run(self):
+        #self.parameters.t_tot = t_tot*c.yr
         self.initialize()
         self.update()
 
         #create data array
-        N = self.parameters.t_tot/self.parameters.dt
+        N = min(self.parameters.t_tot/self.parameters.dt,1.0e5*c.yr/self.parameters.dt)
         self.parameters.data = np.zeros((int(2.*N),5))
         self.write(k=0)
 
         # main loop
         j = 1
-        while (self.parameters.t/c.yr)<t_tot:
+        while (((self.parameters.t)<self.parameters.t_tot) and ((self.particle.r)>self.parameters.r_end)):
             if self.parameters.collisions == True:
                 self.rates() #determin the collision rates
                 self.parameters.update_dt(self) #updates the simulation parameters (e.g. dt)
@@ -213,7 +225,7 @@ class Simu:
                 self.collision() #determine if a collision has occured
                 self.update() #update all the quantities at the new particle position
 
-            if self.parameters.collisions == False:
+            if self.parameters.collisions == False: #no collisions
                 self.parameters.update_dt(self) #updates the simulation parameters (e.g. dt)
                 self.iter() #displace the particle vertically according to Eq. 15
                 self.update() #update all the quantities at the new particle position
@@ -264,17 +276,22 @@ class Par():
         self.dt = None
         self.t = 0.0
         self.data = np.array([])
-        self.t_tot = None
+        self.t_tot = 0.0
+        self.r_end = 0.0
         self.mode = 0
 
         self.collisions = None
+        self.barrier = None
 
     def initialize(self,simu):
         inargs = self.inp_args
         self.f_diff = inargs.f_diff
         self.f_coll = inargs.f_coll
+        self.t_tot = inargs.t_tot*c.yr
+        self.r_end = inargs.r_end*c.AU
 
         self.collisions = inargs.collisions
+        self.barrier = inargs.barrier
         simu.particle.randmotion = inargs.randmotion
         simu.particle.rad_vel = inargs.rad_vel
         simu.disk.gas.viscev = inargs.viscev
@@ -290,7 +307,6 @@ class Par():
 
         if (self.collisions == True):
             t_drift = simu.particle.r/np.abs(simu.particle.v_r)
-
             self.dt = np.amin(([self.f_diff/((simu.disk.gas.alpha+simu.disk.Omega*simu.particle.ts)*simu.disk.Omega),self.f_coll/simu.disk.dust.Ctot_hat,self.f_diff*t_drift]))
             self.t = self.t+self.dt
 

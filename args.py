@@ -15,7 +15,9 @@ class Args:
                 ['alpha',               float],
 
                 ['dtg',               float],
+                ['dbgmodel',               str],
                 ['v_f',               float],
+                ['v_b',               float],
                 ['rho_s',               float],
                 ['a_min',               float],
                 ['a_max',               float],
@@ -26,12 +28,15 @@ class Args:
                 ['r0',               float],
 
                 ['collisions',            bool],
+                ['barrier',            str],
                 ['feps',               float],
                 ['f_diff',               float],
                 ['f_coll',               float],
                 ['randmotion',            bool],
                 ['viscev',               bool],
                 ['rad_vel',               str],
+                ['t_tot',               float],
+                ['r_end',               float],
 
                 ]
 
