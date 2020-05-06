@@ -115,6 +115,12 @@ class Dust:
         Omega = simu.disk.Omega
         self.ts = np.sqrt(np.pi/8.)*(self.rho_s*self.a_grid)/(simu.disk.gas.rho*simu.disk.gas.cs) #stopping time at height z
         self.ts_mp = np.sqrt(np.pi/8.)*(self.rho_s*self.a_grid)/(simu.disk.gas.rho_mp*simu.disk.gas.cs) #stopping time at the mid-plane
+
+        #Stokes drag regime
+        mask = self.a_grid>(2.25*simu.disk.gas.lmfp)
+        if self.ts[mask] != []:
+            self.ts[mask] = (4.*self.a_grid[mask])/(9.*simu.disk.gas.lmfp)*self.ts[mask]
+            self.ts_mp[mask] = (4.*self.a_grid[mask])/(9.*simu.disk.gas.lmfp)*self.ts_mp[mask]
         self.h = simu.disk.gas.h*np.sqrt((alpha/(alpha+Omega*self.ts_mp))*((1.+Omega*self.ts_mp)/(1.+2.*Omega*self.ts_mp))) #sclae hieghzt of dust grains in bin j
         self.nj = 1./(np.sqrt(2.*np.pi)*self.h)*(self.sigj/self.mj)*np.exp((-simu.particle.z**2.)/(2.*self.h**2)) #number ensity of grains of size bin j
         self.sig_colj = np.pi*(np.ones_like(self.sig_colj)*simu.particle.a+simu.disk.dust.a_grid)**2. #collsion cross section between tracked particle and each background particle bin

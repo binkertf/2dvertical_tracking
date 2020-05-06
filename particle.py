@@ -68,6 +68,10 @@ class Particle():
         self.T = simu.disk.gas.T
         self.ts = np.sqrt(np.pi/8.)*(simu.disk.dust.rho_s*self.a)/(simu.disk.gas.rho*simu.disk.gas.cs) #stopping time
         self.ts_mp = np.sqrt(np.pi/8.)*(simu.disk.dust.rho_s*self.a)/(simu.disk.gas.rho_mp*simu.disk.gas.cs)
+        if (self.a > 2.25*simu.disk.gas.lmfp): #Stokes drag regime
+            self.ts = (4.*self.a)/(9.*simu.disk.gas.lmfp)*self.ts
+            self.ts_mp = (4.*self.a)/(9.*simu.disk.gas.lmfp)*self.ts_mp
+
         self.St = self.ts*simu.disk.Omega_mid #Stokes number
         self.St_mid = self.ts_mp * simu.disk.Omega_mid
 

@@ -42,6 +42,7 @@ class Gas:
         self.drho_dr = 0.0          #radial derivative of the gas volume density
         self.P = 0.0                #gas pressure
         self.dP_dr = 0.0            #pressure gardient in radial direction
+        self.lmfp = 0.0             #mean free path [cm]
 
         self.viscev = True
 
@@ -67,6 +68,7 @@ class Gas:
         self.D = self.alpha*self.cs*self.h #gas diffusivity, Eq.(3)
         self.rho = self.sig/(np.sqrt(2.*np.pi)*self.h)*np.exp(-(z**2.)/(2.*self.h**2.)) #update gas volume density
         self.rho_mp = self.sig/(np.sqrt(2.*np.pi)*self.h) #midplane volume denisty
+        self.lmfp = c.mg/(c.smol*self.rho) #mean free path
 
         self.Omega_g = simu.disk.Omega_mid*(1.+0.5*(self.h/r)**2*(self.p+self.q+0.5*self.q*(z/self.h)**2.)) #Takeuchi&Lin Eq. (7)
         self.drho_dr = self.rho*self.p/r
